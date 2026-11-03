@@ -27,7 +27,7 @@ final class NotchWindowController {
         self.nowPlayingService = nowPlayingService
         self.cameraService = cameraService
 
-        let initialRect = NSRect(x: 0, y: 0, width: canvasWidth, height: canvasHeight)
+        let initialRect = NSRect(x: 0, y: 0, width: canvasWidth, height: 28)
         self.panel = NotchPanel(contentRect: initialRect)
 
         let rootView = DynamicNotchView(
@@ -37,6 +37,7 @@ final class NotchWindowController {
         )
 
         let hostingView = NotchHostingView(rootView: rootView)
+        hostingView.autoresizingMask = [.width, .height]
         hostingView.frame = initialRect
         hostingView.stateModel = stateModel
         hostingView.activeNotchSizeProvider = { [weak stateModel] in
@@ -50,6 +51,7 @@ final class NotchWindowController {
         setupScreenAndMouseObservers()
         setupRingLightSubscription()
         setupVisibilitySubscription()
+        setupFrameSubscription()
     }
 
     deinit {
@@ -70,9 +72,34 @@ final class NotchWindowController {
     func positionAtTopCenter() {
         guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
         let screenFrame = screen.frame
-        let x = screenFrame.midX - (canvasWidth / 2.0)
-        let y = screenFrame.maxY - canvasHeight
-        panel.setFrame(NSRect(x: x, y: y, width: canvasWidth, height: canvasHeight), display: true)
+        let w = max(stateModel.targetWidth + 32, 440)
+        let h = max(stateModel.targetHeight + 4, 28)
+        let x = screenFrame.midX - (w / 2.0)
+        let y = screenFrame.maxY - h
+        panel.setFrame(NSRect(x: x, y: y, width: w, height: h), display: true)
+    }
+
+    private func updatePanelFrame() {
+        guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
+        let screenFrame = screen.frame
+        let w = max(stateModel.targetWidth + 32, 440)
+        let h = max(stateModel.targetHeight + 4, 28)
+        let newX = screenFrame.midX - (w / 2.0)
+        let newY = screenFrame.maxY - h
+        let newFrame = NSRect(x: newX, y: newY, width: w, height: h)
+        if panel.frame != newFrame {
+            panel.setFrame(newFrame, display: true)
+        }
+    }
+
+    private func setupFrameSubscription() {
+        stateModel.$isHovering
+            .combineLatest(stateModel.$isPinnedOpen, stateModel.$activeTab)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.updatePanelFrame()
+            }
+            .store(in: &cancellables)
     }
 
     private func setupScreenAndMouseObservers() {
@@ -125,22 +152,7 @@ final class NotchWindowController {
             height: activeH
         )
 
-        // Expanded hover zone: when already hovering or pinned open, allow a generous buffer
-        // so switching between tabs with different widths (e.g. 560 to 408) never abruptly kicks the cursor out
-        let insideNotch: Bool
-        if stateModel.isHovering || stateModel.isPinnedOpen {
-            let bufferW = max(activeW, 580)
-            let bufferH = max(activeH, 130)
-            let expandedHitRect = NSRect(
-                x: screenFrame.midX - bufferW / 2.0,
-                y: screenFrame.maxY - bufferH,
-                width: bufferW,
-                height: bufferH
-            )
-            insideNotch = expandedHitRect.contains(mouseLoc)
-        } else {
-            insideNotch = notchScreenRect.contains(mouseLoc)
-        }
+        let isDirectlyOverNotch = notchScreenRect.contains(mouseLoc)
 
         let dragDetectionRect = NSRect(
             x: screenFrame.midX - (canvasWidth / 2.0),
@@ -178,33 +190,23 @@ final class NotchWindowController {
                         self.stateModel.isHovering = true
                         self.stateModel.activeTab = .tray
                     }
+                    self.updatePanelFrame()
                 }
             }
             return
         }
 
-        if insideNotch {
-            // Cursor is inside: cancel any pending exit timer immediately
+        if isDirectlyOverNotch {
+            // Cursor is strictly inside the visible notch silhouette: capture mouse events
+            if panel.ignoresMouseEvents {
+                panel.ignoresMouseEvents = false
+            }
+
             hoverExitWorkItem?.cancel()
             hoverExitWorkItem = nil
 
-            // If user manually clicked "Contraer", only intercept mouse events inside the top 24pt pill
             if stateModel.isManuallyCollapsed {
-                let collapsedRect = NSRect(
-                    x: screenFrame.midX - 168.0 / 2.0,
-                    y: screenFrame.maxY - 24.0,
-                    width: 168.0,
-                    height: 24.0
-                )
-                let insideCollapsedPill = collapsedRect.contains(mouseLoc)
-                if panel.ignoresMouseEvents != !insideCollapsedPill {
-                    panel.ignoresMouseEvents = !insideCollapsedPill
-                }
                 return
-            }
-
-            if panel.ignoresMouseEvents {
-                panel.ignoresMouseEvents = false
             }
 
             if !stateModel.isHovering && hoverExpandWorkItem == nil {
@@ -215,46 +217,57 @@ final class NotchWindowController {
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.78)) {
                         self.stateModel.isHovering = true
                     }
+                    self.updatePanelFrame()
                 }
                 hoverExpandWorkItem = work
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.14, execute: work)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
             }
         } else {
-            // Cursor is outside: cancel expand work item
+            // Cursor is OUTSIDE the visible notch: ALWAYS pass mouse events through to Safari/underlying apps!
+            if !panel.ignoresMouseEvents {
+                panel.ignoresMouseEvents = true
+            }
+
             hoverExpandWorkItem?.cancel()
             hoverExpandWorkItem = nil
 
-            // Graceful exit with debounce: prevents closing while transitioning between tabs with different widths
-            if stateModel.isHovering && hoverExitWorkItem == nil {
-                let exitWork = DispatchWorkItem { [weak self] in
-                    guard let self = self else { return }
-                    self.hoverExitWorkItem = nil
-
-                    guard let scr = NSScreen.main ?? NSScreen.screens.first else { return }
-                    let mouseNow = NSEvent.mouseLocation
-                    let currentW = self.stateModel.targetWidth
-                    let currentH = self.stateModel.targetHeight
-                    let currentRect = NSRect(
-                        x: scr.frame.midX - currentW / 2.0,
-                        y: scr.frame.maxY - currentH,
-                        width: currentW,
-                        height: currentH
-                    )
-                    if !currentRect.contains(mouseNow) {
-                        if !self.stateModel.isPinnedOpen {
-                            self.panel.ignoresMouseEvents = true
-                            if self.stateModel.isManuallyCollapsed {
-                                self.stateModel.isManuallyCollapsed = false
-                            }
-                            withAnimation(.spring(response: 0.35, dampingFraction: 0.78)) {
+            // If expanded and not pinned: exit hover
+            if stateModel.isHovering && !stateModel.isPinnedOpen {
+                // If moving down towards Safari tabs, collapse immediately!
+                if mouseLoc.y < screenFrame.maxY - activeH {
+                    hoverExitWorkItem?.cancel()
+                    hoverExitWorkItem = nil
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.82)) {
+                        self.stateModel.isHovering = false
+                        self.stateModel.isMirrorHovered = false
+                    }
+                    self.updatePanelFrame()
+                } else if hoverExitWorkItem == nil {
+                    // Small horizontal grace period
+                    let exitWork = DispatchWorkItem { [weak self] in
+                        guard let self = self else { return }
+                        self.hoverExitWorkItem = nil
+                        guard let scr = NSScreen.main ?? NSScreen.screens.first else { return }
+                        let mouseNow = NSEvent.mouseLocation
+                        let currentW = self.stateModel.targetWidth
+                        let currentH = self.stateModel.targetHeight
+                        let currentRect = NSRect(
+                            x: scr.frame.midX - currentW / 2.0,
+                            y: scr.frame.maxY - currentH,
+                            width: currentW,
+                            height: currentH
+                        )
+                        if !currentRect.contains(mouseNow) && !self.stateModel.isPinnedOpen {
+                            withAnimation(.spring(response: 0.25, dampingFraction: 0.82)) {
                                 self.stateModel.isHovering = false
                                 self.stateModel.isMirrorHovered = false
                             }
+                            self.updatePanelFrame()
                         }
                     }
+                    hoverExitWorkItem = exitWork
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: exitWork)
                 }
-                hoverExitWorkItem = exitWork
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.22, execute: exitWork)
             }
         }
     }
