@@ -635,10 +635,12 @@ final class NowPlayingService: ObservableObject {
         } else if let urlStr = active.artworkURL, !urlStr.isEmpty {
             if urlStr != lastArtworkURLString, let url = URL(string: urlStr) {
                 lastArtworkURLString = urlStr
+                let expectedTitle = active.title
                 URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
                     if let data = data, let img = NSImage(data: data) {
                         DispatchQueue.main.async {
-                            self?.artworkImage = img
+                            guard let self = self, self.trackTitle == expectedTitle else { return }
+                            self.artworkImage = img
                         }
                     }
                 }.resume()

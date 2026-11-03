@@ -206,6 +206,13 @@ final class NotchHostingView<Content: View>: NSHostingView<Content> {
             return [tempURL]
         }
 
+        if let tiffData = pb.data(forType: .tiff), let img = NSImage(data: tiffData), let tempURL = saveTemporaryPNG(img) {
+            return [tempURL]
+        }
+        if let pngData = pb.data(forType: .png), let img = NSImage(data: pngData), let tempURL = saveTemporaryPNG(img) {
+            return [tempURL]
+        }
+
         return []
     }
 

@@ -179,13 +179,15 @@ struct DynamicNotchView: View {
         .padding(.horizontal, 16)
         .padding(.top, 7)
         .padding(.bottom, 9)
-        .onTapGesture(count: 2) {
-            if stateModel.isPinnedOpen {
-                withAnimation(springAnimation) {
-                    stateModel.showUnpinButton.toggle()
+        .simultaneousGesture(
+            TapGesture(count: 2).onEnded {
+                if stateModel.isPinnedOpen {
+                    withAnimation(springAnimation) {
+                        stateModel.showUnpinButton.toggle()
+                    }
                 }
             }
-        }
+        )
     }
 
     // MARK: - Pin / Unpin Controls
