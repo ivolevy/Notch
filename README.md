@@ -10,26 +10,26 @@ Una experiencia interactiva y minimalista estilo **Dynamic Island / Notch** dise
 
 ## ✨ Características
 
-* 🎵 **Now Playing**: Integración y controles en vivo para Spotify, Apple Music y navegadores (Arc, Safari, Chrome). Muestra carátula, título, artista y barra de progreso.
-* 🪄 **Eliminador de Fondos IA (100% Precisión)**: Arrastra imágenes al estante y haz clic para quitar el fondo al instante con el modelo neuronal SOTA **RMBG-1.4**. Descarga automáticamente el PNG transparente en tu carpeta `~/Downloads`.
+* 🎵 **Now Playing**: Integración y controles en vivo para Spotify, Apple Music, YouTube y navegadores. Controles completos: anterior, play/pause y siguiente. Muestra carátula, título, artista y barra de progreso sin bloqueos de permisos.
+* 🪄 **Eliminador de Fondos IA Nativo**: Arrastra cualquier imagen (JPG, PNG, WebP, HEIC) al estante y haz clic para quitar el fondo al instante con el motor neuronal nativo de Apple Vision en macOS. Descarga automáticamente el PNG transparente en tu carpeta `~/Downloads`.
 * 🪞 **Mini Espejo y Aro de Luz**: Espejo circular en vivo con tu cámara FaceTime/webcam. Incluye control de aro de luz en pantalla con temperatura cálida y fría para iluminar tu rostro.
-* 📦 **Estante de Archivos y AirDrop**: Almacena temporalmente imágenes arrastrándolas al Notch, o suéltalas en la zona derecha para enviarlas inmediatamente por AirDrop. Al pasar el mouse sobre una imagen, aparece una `x` discreta para borrarla.
-* 📌 **Anclaje Inteligente**: Haz clic derecho en el Notch para "Anclar Notch" y mantenerlo siempre desplegado mientras trabajas.
+* 📦 **Estante de Archivos y AirDrop**: Almacena imágenes arrastrándolas al Notch, o suéltalas en la zona derecha para enviarlas inmediatamente por AirDrop.
+* 📌 **Anclaje Inteligente con Doble Clic**: Botón de anclar en la barra superior del Notch. Al estar anclado, con hacer doble clic aparece el botón para desanclar y contraerlo.
+* ⚡ **Ultraligero y Optimizado**: Pesa solo 2.4 MB (más de 98% de reducción de tamaño) sin modelos externos pesados ni consumo de batería.
 
 ---
 
-## 🚀 Instalación rápida (Sin compilar nada)
+## 🚀 Descarga e Instalación (Para tu MacBook)
 
-Para instalarlo en cualquier MacBook o Mac:
+Para instalarlo en cualquier MacBook o Mac en 30 segundos:
 
-1. Ve a la pestaña de **[Releases](../../releases)** del repositorio.
-2. Descarga el archivo **`Notch.zip`** de la última versión.
-3. Haz doble clic en `Notch.zip` para descomprimirlo: aparecerá la app **`Notch.app`**.
-4. Arrastra **`Notch.app`** a tu carpeta de **Aplicaciones**.
-5. **Primera apertura (Gatekeeper de macOS)**:
-   * Al ser una aplicación independiente, la primera vez haz **clic derecho** sobre `Notch.app` y selecciona **Abrir**.
-   * Haz clic en el botón **Abrir** en el diálogo de seguridad de macOS.
-   * *(O desde la Terminal: `xattr -cr /Applications/Notch.app`)*.
+1. Ve a **[Releases](../../releases/latest)** y descarga el archivo **`Notch.zip`** (solo 1.3 MB).
+2. Haz doble clic en `Notch.zip` para descomprimirlo y obtener **`Notch.app`**.
+3. Arrastra **`Notch.app`** a tu carpeta de **Aplicaciones**.
+4. **Primera apertura**:
+   * Haz **clic derecho** sobre `Notch.app` y selecciona **Abrir**.
+   * Haz clic en **Abrir** en el aviso de seguridad de macOS.
+   * *(O ejecuta en la Terminal: `xattr -cr /Applications/Notch.app`)*.
 
 ¡Listo! El Notch aparecerá en la parte superior central de tu pantalla.
 
