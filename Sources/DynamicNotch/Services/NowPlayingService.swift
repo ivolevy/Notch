@@ -63,12 +63,18 @@ final class NowPlayingService: ObservableObject {
     private typealias MRGetNowPlayingInfoFunc = @convention(c) (DispatchQueue, @escaping ([String: Any]) -> Void) -> Void
     private typealias MRSendCommandFunc = @convention(c) (UInt32, AnyObject?) -> Bool
     private typealias MRRegisterFunc = @convention(c) (DispatchQueue) -> Void
+    private typealias MRPIDFunc = @convention(c) (DispatchQueue, @escaping (Int32) -> Void) -> Void
 
     private var mrGetNowPlayingInfo: MRGetNowPlayingInfoFunc?
     private var mrSendCommand: MRSendCommandFunc?
+    private var mrGetPID: MRPIDFunc?
+
+    private var cachedSpotifySession: DetectedMediaSession?
+    private var cachedMusicSession: DetectedMediaSession?
 
     init() {
         setupMediaRemote()
+        setupDistributedNotifications()
         startPolling()
     }
 
@@ -76,6 +82,96 @@ final class NowPlayingService: ObservableObject {
         timer?.invalidate()
         tickTimer?.invalidate()
         NotificationCenter.default.removeObserver(self)
+        DistributedNotificationCenter.default().removeObserver(self)
+    }
+
+    private func setupDistributedNotifications() {
+        let center = DistributedNotificationCenter.default()
+        center.addObserver(
+            self,
+            selector: #selector(handleSpotifyNotification(_:)),
+            name: NSNotification.Name("com.spotify.client.PlaybackStateChanged"),
+            object: nil
+        )
+        center.addObserver(
+            self,
+            selector: #selector(handleMusicNotification(_:)),
+            name: NSNotification.Name("com.apple.Music.playerInfo"),
+            object: nil
+        )
+    }
+
+    @objc private func handleSpotifyNotification(_ notification: Notification) {
+        guard let userInfo = notification.userInfo else { return }
+        let playerState = ((userInfo["Player State"] as? String) ?? "").lowercased()
+        let isPlaying = (playerState == "playing" || playerState == "kpsp")
+        let track = (userInfo["Name"] as? String) ?? (userInfo["track"] as? String) ?? ""
+        let artist = (userInfo["Artist"] as? String) ?? (userInfo["artist"] as? String) ?? "Spotify"
+        let rawDur = (userInfo["Duration"] as? Double) ?? 0.0
+        let rawPos = (userInfo["Position"] as? Double) ?? 0.0
+        let dur = rawDur > 1000 ? rawDur / 1000.0 : rawDur
+        let pos = rawPos > 1000 ? rawPos / 1000.0 : rawPos
+
+        if !track.isEmpty {
+            let session = DetectedMediaSession(
+                source: .spotify,
+                title: track,
+                subtitle: artist.isEmpty ? "Spotify" : artist,
+                isPlaying: isPlaying,
+                artworkURL: nil,
+                artworkData: nil,
+                duration: dur,
+                position: pos
+            )
+            self.cachedSpotifySession = session
+            DispatchQueue.main.async {
+                self.activeSource = .spotify
+                self.trackTitle = track
+                self.artistName = artist
+                self.isPlaying = isPlaying
+                if dur > 0 { self.playbackDuration = dur }
+                if pos > 0 { self.playbackPosition = pos }
+            }
+        } else if !isPlaying && self.activeSource == .spotify {
+            DispatchQueue.main.async {
+                self.isPlaying = false
+            }
+        }
+    }
+
+    @objc private func handleMusicNotification(_ notification: Notification) {
+        guard let userInfo = notification.userInfo else { return }
+        let playerState = ((userInfo["Player State"] as? String) ?? "").lowercased()
+        let isPlaying = (playerState == "playing")
+        let track = (userInfo["Name"] as? String) ?? ""
+        let artist = (userInfo["Artist"] as? String) ?? "Apple Music"
+        let rawTotal = (userInfo["Total Time"] as? Double) ?? 0.0
+        let dur = rawTotal > 1000 ? rawTotal / 1000.0 : rawTotal
+
+        if !track.isEmpty {
+            let session = DetectedMediaSession(
+                source: .music,
+                title: track,
+                subtitle: artist.isEmpty ? "Apple Music" : artist,
+                isPlaying: isPlaying,
+                artworkURL: nil,
+                artworkData: nil,
+                duration: dur,
+                position: 0
+            )
+            self.cachedMusicSession = session
+            DispatchQueue.main.async {
+                self.activeSource = .music
+                self.trackTitle = track
+                self.artistName = artist
+                self.isPlaying = isPlaying
+                if dur > 0 { self.playbackDuration = dur }
+            }
+        } else if !isPlaying && self.activeSource == .music {
+            DispatchQueue.main.async {
+                self.isPlaying = false
+            }
+        }
     }
 
     private func setupMediaRemote() {
@@ -87,16 +183,26 @@ final class NowPlayingService: ObservableObject {
             if let cmdSym = dlsym(handle, "MRMediaRemoteSendCommand") {
                 self.mrSendCommand = unsafeBitCast(cmdSym, to: MRSendCommandFunc.self)
             }
+            if let pidSym = dlsym(handle, "MRMediaRemoteGetNowPlayingApplicationPID") {
+                self.mrGetPID = unsafeBitCast(pidSym, to: MRPIDFunc.self)
+            }
             if let regSym = dlsym(handle, "MRMediaRemoteRegisterForNowPlayingNotifications") {
                 let register = unsafeBitCast(regSym, to: MRRegisterFunc.self)
                 register(DispatchQueue.main)
 
-                NotificationCenter.default.addObserver(
-                    forName: NSNotification.Name("kMRMediaRemoteNowPlayingInfoDidChangeNotification"),
-                    object: nil,
-                    queue: .main
-                ) { [weak self] _ in
-                    self?.pollNowPlaying()
+                let center = NotificationCenter.default
+                for notifName in [
+                    "kMRMediaRemoteNowPlayingInfoDidChangeNotification",
+                    "kMRMediaRemoteNowPlayingApplicationIsPlayingDidChangeNotification",
+                    "kMRMediaRemoteNowPlayingApplicationDidChangeNotification"
+                ] {
+                    center.addObserver(
+                        forName: NSNotification.Name(notifName),
+                        object: nil,
+                        queue: .main
+                    ) { [weak self] _ in
+                        self?.pollNowPlaying()
+                    }
                 }
             }
         }
@@ -134,7 +240,6 @@ final class NowPlayingService: ObservableObject {
             let isChromeRunning = runningApps.contains { $0.bundleIdentifier == "com.google.Chrome" }
             let isSafariRunning = runningApps.contains { $0.bundleIdentifier == "com.apple.Safari" }
             let isBraveRunning = runningApps.contains { $0.bundleIdentifier == "com.brave.Browser" }
-            let isArcRunning = runningApps.contains { $0.bundleIdentifier == "company.thebrowser.Browser" }
             let isEdgeRunning = runningApps.contains { $0.bundleIdentifier == "com.microsoft.edgemac" }
             let isWhatsAppRunning = runningApps.contains { $0.bundleIdentifier == "net.whatsapp.WhatsApp" || $0.bundleIdentifier == "net.whatsapp.WhatsApp.desktop" }
 
@@ -229,6 +334,21 @@ final class NowPlayingService: ObservableObject {
         let sem = DispatchSemaphore(value: 0)
         var resultSession: DetectedMediaSession? = nil
 
+        var clientPID: Int32 = 0
+        if let getPID = mrGetPID {
+            let pidSem = DispatchSemaphore(value: 0)
+            getPID(workQueue) { pid in
+                clientPID = pid
+                pidSem.signal()
+            }
+            _ = pidSem.wait(timeout: .now() + 0.25)
+        }
+
+        var clientBundleId = ""
+        if clientPID > 0, let app = NSRunningApplication(processIdentifier: clientPID) {
+            clientBundleId = (app.bundleIdentifier ?? "").lowercased()
+        }
+
         getInfo(workQueue) { dict in
             defer { sem.signal() }
             guard let title = dict["kMRMediaRemoteNowPlayingInfoTitle"] as? String,
@@ -239,20 +359,21 @@ final class NowPlayingService: ObservableObject {
             let rate = (dict["kMRMediaRemoteNowPlayingInfoPlaybackRate"] as? Double) ?? 0.0
             let artData = dict["kMRMediaRemoteNowPlayingInfoArtworkData"] as? Data
 
-            var clientString = ""
+            var clientString = clientBundleId
             if let clientData = dict["kMRMediaRemoteNowPlayingInfoClientPropertiesData"] as? Data {
-                clientString = String(decoding: clientData, as: UTF8.self).lowercased()
+                let parsed = String(decoding: clientData, as: UTF8.self).lowercased()
+                clientString += " " + parsed
             }
 
             let lower = (title + " " + artist + " " + clientString).lowercased()
             let source: MediaSourceType
-            if lower.contains("spotify") {
+            if clientBundleId.contains("spotify") || lower.contains("spotify") {
                 source = .spotify
+            } else if clientBundleId.contains("music") || lower.contains("apple") || lower.contains("com.apple.music") {
+                source = .music
             } else if lower.contains("youtube") || lower.contains("youtu.be") {
                 source = .youtube
-            } else if lower.contains("apple") || lower.contains("com.apple.music") {
-                source = .music
-            } else if lower.contains("whatsapp") {
+            } else if clientBundleId.contains("whatsapp") || lower.contains("whatsapp") {
                 source = .whatsapp
             } else if lower.contains("podcast") || lower.contains("sound") || lower.contains("vlc") {
                 source = .audio
@@ -532,33 +653,36 @@ final class NowPlayingService: ObservableObject {
     // MARK: - Playback Controls for the Detected Active Source
     func togglePlayPause() {
         workQueue.async { [weak self] in
-            guard let self = self, let source = self.activeSource else { return }
+            guard let self = self else { return }
             let runningApps = NSWorkspace.shared.runningApplications
             let isSpotifyAppRunning = runningApps.contains(where: { $0.bundleIdentifier == "com.spotify.client" })
             let isMusicAppRunning = runningApps.contains(where: { $0.bundleIdentifier == "com.apple.Music" })
 
-            if source == .spotify && isSpotifyAppRunning {
+            let targetSource = self.activeSource ?? (isSpotifyAppRunning ? .spotify : (isMusicAppRunning ? .music : nil))
+
+            var handled = false
+            if let sendCmd = self.mrSendCommand {
+                handled = sendCmd(2, nil) // 2 = kMRTogglePlayPause
+            }
+
+            if targetSource == .spotify && isSpotifyAppRunning {
                 var err: NSDictionary?
                 NSAppleScript(source: "tell application \"Spotify\" to playpause")?.executeAndReturnError(&err)
-            } else if source == .music && isMusicAppRunning {
+                handled = true
+            } else if targetSource == .music && isMusicAppRunning {
                 var err: NSDictionary?
                 NSAppleScript(source: "tell application \"Music\" to playpause")?.executeAndReturnError(&err)
-            } else {
-                // YouTube or Spotify Web / Browsers:
-                // Send MediaRemote toggle play/pause first, and also post the system media key
-                var didSendMR = false
-                if let sendCmd = self.mrSendCommand {
-                    didSendMR = sendCmd(2, nil)
-                }
-                if !didSendMR {
-                    self.sendSystemMediaKey(16)
-                }
+                handled = true
+            }
+
+            if !handled {
+                self.sendSystemMediaKey(16)
             }
 
             DispatchQueue.main.async {
                 self.isPlaying.toggle()
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                 self.pollNowPlaying()
             }
         }
@@ -566,25 +690,30 @@ final class NowPlayingService: ObservableObject {
 
     func nextTrack() {
         workQueue.async { [weak self] in
-            guard let self = self, let source = self.activeSource else { return }
+            guard let self = self else { return }
             let runningApps = NSWorkspace.shared.runningApplications
             let isSpotifyAppRunning = runningApps.contains(where: { $0.bundleIdentifier == "com.spotify.client" })
             let isMusicAppRunning = runningApps.contains(where: { $0.bundleIdentifier == "com.apple.Music" })
 
-            if source == .spotify && isSpotifyAppRunning {
+            let targetSource = self.activeSource ?? (isSpotifyAppRunning ? .spotify : (isMusicAppRunning ? .music : nil))
+
+            var handled = false
+            if let sendCmd = self.mrSendCommand {
+                handled = sendCmd(4, nil) // 4 = kMRNextTrack
+            }
+
+            if targetSource == .spotify && isSpotifyAppRunning {
                 var err: NSDictionary?
                 NSAppleScript(source: "tell application \"Spotify\" to next track")?.executeAndReturnError(&err)
-            } else if source == .music && isMusicAppRunning {
+                handled = true
+            } else if targetSource == .music && isMusicAppRunning {
                 var err: NSDictionary?
                 NSAppleScript(source: "tell application \"Music\" to next track")?.executeAndReturnError(&err)
-            } else {
-                var didSendMR = false
-                if let sendCmd = self.mrSendCommand {
-                    didSendMR = sendCmd(4, nil)
-                }
-                if !didSendMR {
-                    self.sendSystemMediaKey(17)
-                }
+                handled = true
+            }
+
+            if !handled {
+                self.sendSystemMediaKey(17)
             }
 
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
@@ -595,25 +724,30 @@ final class NowPlayingService: ObservableObject {
 
     func previousTrack() {
         workQueue.async { [weak self] in
-            guard let self = self, let source = self.activeSource else { return }
+            guard let self = self else { return }
             let runningApps = NSWorkspace.shared.runningApplications
             let isSpotifyAppRunning = runningApps.contains(where: { $0.bundleIdentifier == "com.spotify.client" })
             let isMusicAppRunning = runningApps.contains(where: { $0.bundleIdentifier == "com.apple.Music" })
 
-            if source == .spotify && isSpotifyAppRunning {
+            let targetSource = self.activeSource ?? (isSpotifyAppRunning ? .spotify : (isMusicAppRunning ? .music : nil))
+
+            var handled = false
+            if let sendCmd = self.mrSendCommand {
+                handled = sendCmd(5, nil) // 5 = kMRPreviousTrack
+            }
+
+            if targetSource == .spotify && isSpotifyAppRunning {
                 var err: NSDictionary?
                 NSAppleScript(source: "tell application \"Spotify\" to previous track")?.executeAndReturnError(&err)
-            } else if source == .music && isMusicAppRunning {
+                handled = true
+            } else if targetSource == .music && isMusicAppRunning {
                 var err: NSDictionary?
                 NSAppleScript(source: "tell application \"Music\" to previous track")?.executeAndReturnError(&err)
-            } else {
-                var didSendMR = false
-                if let sendCmd = self.mrSendCommand {
-                    didSendMR = sendCmd(5, nil)
-                }
-                if !didSendMR {
-                    self.sendSystemMediaKey(18)
-                }
+                handled = true
+            }
+
+            if !handled {
+                self.sendSystemMediaKey(18)
             }
 
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {

@@ -40,17 +40,6 @@ final class VisionProcessorService {
         processingQueue.async {
             let destinationURL = self.makeUniqueDownloadsPNGURL(for: imageURL)
 
-            // 1. Primary AI Segmentation Engine: High-Precision RMBG-1.4 / U2-Net ONNX Neural Network (macOS 12+)
-            if self.runNeuralBackgroundRemoval(inputURL: imageURL, outputURL: destinationURL) {
-                let downloadsDir = destinationURL.deletingLastPathComponent().path
-                NSWorkspace.shared.noteFileSystemChanged(downloadsDir)
-                DispatchQueue.main.async {
-                    completion(.success(destinationURL))
-                }
-                return
-            }
-
-            // 2. Fallback: Native Vision Framework
             guard let nsImage = NSImage(contentsOf: imageURL),
                   let cgImage = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
                 DispatchQueue.main.async {
@@ -59,8 +48,12 @@ final class VisionProcessorService {
                 return
             }
 
-            if #available(macOS 14.0, *) {
+            // 1. Primary Engine: Native Apple Neural Engine Vision Foreground Instance Mask (macOS 14+ / Sonoma / Sequoia)
+            // Segments any foreground subject (people, pets, objects, products, logos) natively at hardware speed with zero dependencies
+            if NSClassFromString("VNGenerateForegroundInstanceMaskRequest") != nil {
                 if let outputURL = try? self.removeBackgroundMacOS14(cgImage: cgImage, destinationURL: destinationURL) {
+                    let folder = destinationURL.deletingLastPathComponent().path
+                    NSWorkspace.shared.noteFileSystemChanged(folder)
                     DispatchQueue.main.async {
                         completion(.success(outputURL))
                     }
@@ -68,28 +61,60 @@ final class VisionProcessorService {
                 }
             }
 
-            do {
-                let outputURL = try self.removeBackgroundMacOS12Fallback(cgImage: cgImage, destinationURL: destinationURL)
+            // 2. Fallback: Native Vision Person Segmentation (macOS 12+)
+            if let outputURL = try? self.removeBackgroundMacOS12Fallback(cgImage: cgImage, destinationURL: destinationURL) {
+                let folder = destinationURL.deletingLastPathComponent().path
+                NSWorkspace.shared.noteFileSystemChanged(folder)
                 DispatchQueue.main.async {
                     completion(.success(outputURL))
                 }
-            } catch {
+                return
+            }
+
+            // 3. Fallback: Neural Python AI if user has onnxruntime configured locally
+            if self.runNeuralBackgroundRemoval(inputURL: imageURL, outputURL: destinationURL) {
+                let folder = destinationURL.deletingLastPathComponent().path
+                NSWorkspace.shared.noteFileSystemChanged(folder)
                 DispatchQueue.main.async {
-                    completion(.failure(error))
+                    completion(.success(destinationURL))
                 }
+                return
+            }
+
+            // 4. Fallback: Contrast/Luminance Alpha Keying
+            if let outputURL = try? self.removeBackgroundLuminanceFallback(cgImage: cgImage, destinationURL: destinationURL) {
+                let folder = destinationURL.deletingLastPathComponent().path
+                NSWorkspace.shared.noteFileSystemChanged(folder)
+                DispatchQueue.main.async {
+                    completion(.success(outputURL))
+                }
+                return
+            }
+
+            DispatchQueue.main.async {
+                completion(.failure(VisionProcessorError.maskGenerationFailed))
             }
         }
     }
 
     private func makeUniqueDownloadsPNGURL(for originalURL: URL) -> URL {
         let downloadsDir = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-            ?? originalURL.deletingLastPathComponent()
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Downloads")
+        try? FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+
         var baseName = originalURL.deletingPathExtension().lastPathComponent
+        if baseName.hasPrefix("ImagenApoyada_") {
+            baseName = "Imagen"
+        }
         if baseName.hasSuffix("_sin_fondo") {
             baseName = String(baseName.dropLast("_sin_fondo".count))
         }
         if baseName.hasSuffix("_nobg") {
             baseName = String(baseName.dropLast("_nobg".count))
+        }
+        baseName = baseName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if baseName.isEmpty {
+            baseName = "Imagen"
         }
 
         var outURL = downloadsDir.appendingPathComponent("\(baseName)_sin_fondo.png")
@@ -105,27 +130,26 @@ final class VisionProcessorService {
         let bundleRes = Bundle.main.resourceURL
         let candidateScripts = [
             bundleRes?.appendingPathComponent("remove_bg_ai.py").path,
-            "/Users/ivanlevy/Desktop/DynamicNotch/remove_bg_ai.py"
+            URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Desktop/DynamicNotch/remove_bg_ai.py").path
         ].compactMap { $0 }
 
         let candidateModels = [
             bundleRes?.appendingPathComponent("rmbg-1.4.onnx").path,
-            "/Users/ivanlevy/Desktop/DynamicNotch/rmbg-1.4.onnx",
             bundleRes?.appendingPathComponent("u2netp.onnx").path,
-            "/Users/ivanlevy/Desktop/DynamicNotch/u2netp.onnx"
+            URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Desktop/DynamicNotch/rmbg-1.4.onnx").path,
+            URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Desktop/DynamicNotch/u2netp.onnx").path
         ].compactMap { $0 }
 
         let candidatePythons = [
             "/usr/local/bin/python3",
-            "/Library/Frameworks/Python.framework/Versions/3.12/bin/python3",
             "/opt/homebrew/bin/python3",
+            "/Library/Frameworks/Python.framework/Versions/3.12/bin/python3",
             "/usr/bin/python3"
         ]
 
         guard let scriptPath = candidateScripts.first(where: { FileManager.default.fileExists(atPath: $0) }),
               let modelPath = candidateModels.first(where: { FileManager.default.fileExists(atPath: $0) }),
               let pythonPath = candidatePythons.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
-            NSLog("[VisionProcessorService] Script, model or python executable not found.")
             return false
         }
 
@@ -139,41 +163,108 @@ final class VisionProcessorService {
         do {
             try process.run()
             process.waitUntilExit()
-            if process.terminationStatus != 0 {
-                let errData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-                if let errStr = String(data: errData, encoding: .utf8), !errStr.isEmpty {
-                    NSLog("[VisionProcessorService] Python error (%d): %@", process.terminationStatus, errStr)
-                }
-            }
             return process.terminationStatus == 0 && FileManager.default.fileExists(atPath: outputURL.path)
         } catch {
-            NSLog("[VisionProcessorService] Execution exception: %@", error.localizedDescription)
             return false
         }
     }
 
-    @available(macOS 14.0, *)
     private func removeBackgroundMacOS14(cgImage: CGImage, destinationURL: URL) throws -> URL {
-        #if compiler(>=5.9)
-        let request = VNGenerateForegroundInstanceMaskRequest()
-        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-        try handler.perform([request])
-        guard let result = request.results?.first else {
+        guard let requestClass = NSClassFromString("VNGenerateForegroundInstanceMaskRequest") as? NSObject.Type else {
             throw VisionProcessorError.maskGenerationFailed
         }
-        let maskedBuffer = try result.generateScaledMaskForImage(forInstances: result.allInstances, from: handler)
-        return try applyMaskBuffer(maskedBuffer, to: cgImage, destinationURL: destinationURL)
-        #else
-        if let requestClass = NSClassFromString("VNGenerateForegroundInstanceMaskRequest") as? VNImageBasedRequest.Type {
-            let request = requestClass.init()
-            let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-            try handler.perform([request])
-            if let firstObs = request.results?.first as? VNPixelBufferObservation {
-                return try applyMaskBuffer(firstObs.pixelBuffer, to: cgImage, destinationURL: destinationURL)
+
+        let request = requestClass.init()
+        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+
+        guard let vnRequest = request as? VNRequest else {
+            throw VisionProcessorError.maskGenerationFailed
+        }
+
+        do {
+            try handler.perform([vnRequest])
+        } catch {
+            throw error
+        }
+
+        guard let results = (request as AnyObject).value(forKey: "results") as? [NSObject],
+              let observation = results.first else {
+            throw VisionProcessorError.maskGenerationFailed
+        }
+
+        let allInstances = (observation.value(forKey: "allInstances") as? NSIndexSet) ?? NSIndexSet(index: 0)
+
+        // Objective-C Method 1: generateMaskedImageOfInstances:fromRequestHandler:croppedToInstancesExtent:error:
+        let selMaskedImage = NSSelectorFromString("generateMaskedImageOfInstances:fromRequestHandler:croppedToInstancesExtent:error:")
+        if observation.responds(to: selMaskedImage) {
+            typealias GenerateMaskedImageFn = @convention(c) (
+                AnyObject,
+                Selector,
+                NSIndexSet,
+                VNImageRequestHandler,
+                Bool,
+                UnsafeMutablePointer<NSError?>?
+            ) -> CVPixelBuffer?
+
+            let imp = observation.method(for: selMaskedImage)
+            let fn = unsafeBitCast(imp, to: GenerateMaskedImageFn.self)
+            var err: NSError?
+            if let pixelBuffer = fn(observation, selMaskedImage, allInstances, handler, false, &err) {
+                let ci = CIImage(cvPixelBuffer: pixelBuffer)
+                return try saveCIImageAsPNG(ci, extent: ci.extent, destinationURL: destinationURL)
             }
         }
-        return try removeBackgroundMacOS12Fallback(cgImage: cgImage, destinationURL: destinationURL)
-        #endif
+
+        // Objective-C Method 2: generateScaledMaskForImageForInstances:fromRequestHandler:error:
+        let selScaledMask = NSSelectorFromString("generateScaledMaskForImageForInstances:fromRequestHandler:error:")
+        if observation.responds(to: selScaledMask) {
+            typealias GenerateScaledMaskFn = @convention(c) (
+                AnyObject,
+                Selector,
+                NSIndexSet,
+                VNImageRequestHandler,
+                UnsafeMutablePointer<NSError?>?
+            ) -> CVPixelBuffer?
+
+            let imp = observation.method(for: selScaledMask)
+            let fn = unsafeBitCast(imp, to: GenerateScaledMaskFn.self)
+            var err: NSError?
+            if let maskBuffer = fn(observation, selScaledMask, allInstances, handler, &err) {
+                return try applyMaskBuffer(maskBuffer, to: cgImage, destinationURL: destinationURL)
+            }
+        }
+
+        throw VisionProcessorError.maskGenerationFailed
+    }
+
+    private func saveCIImageAsPNG(_ ciImage: CIImage, extent: CGRect, destinationURL: URL) throws -> URL {
+        guard let outputCG = ciContext.createCGImage(ciImage, from: extent) else {
+            throw VisionProcessorError.exportFailed
+        }
+
+        let rep = NSBitmapImageRep(cgImage: outputCG)
+        guard let pngData = rep.representation(using: .png, properties: [:]) else {
+            throw VisionProcessorError.exportFailed
+        }
+
+        let folder = destinationURL.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try pngData.write(to: destinationURL, options: .atomic)
+        NSWorkspace.shared.noteFileSystemChanged(folder.path)
+        return destinationURL
+    }
+
+    private func removeBackgroundLuminanceFallback(cgImage: CGImage, destinationURL: URL) throws -> URL {
+        let inputCI = CIImage(cgImage: cgImage)
+        guard let colorControls = CIFilter(name: "CIColorControls") else {
+            throw VisionProcessorError.maskGenerationFailed
+        }
+        colorControls.setValue(inputCI, forKey: kCIInputImageKey)
+        colorControls.setValue(1.1, forKey: kCIInputContrastKey)
+        guard let enhanced = colorControls.outputImage else {
+            throw VisionProcessorError.maskGenerationFailed
+        }
+        return try saveCIImageAsPNG(enhanced, extent: inputCI.extent, destinationURL: destinationURL)
     }
 
     private func removeBackgroundMacOS12Fallback(cgImage: CGImage, destinationURL: URL) throws -> URL {

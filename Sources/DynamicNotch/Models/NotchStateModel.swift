@@ -35,7 +35,14 @@ final class NotchStateModel: ObservableObject {
     @Published var isDraggingOver: Bool = false
     @Published var isDraggingOverLeftShelf: Bool = false
     @Published var isDraggingOverRightAirDrop: Bool = false
-    @Published var isPinnedOpen: Bool = false
+    @Published var isPinnedOpen: Bool = false {
+        didSet {
+            if !isPinnedOpen {
+                showUnpinButton = false
+            }
+        }
+    }
+    @Published var showUnpinButton: Bool = false
     @Published var isManuallyCollapsed: Bool = false
     @Published var isNotchHidden: Bool = false
     @Published var activeTab: NotchTab = .music
@@ -214,9 +221,9 @@ final class NotchStateModel: ObservableObject {
                         self.shelfItems[idx].thumbnail = newThumb
                     }
                 }
-                self.showTemporaryStatus("Descargado en Descargas: \(downloadedPNGURL.lastPathComponent)", isError: false)
+                self.showTemporaryStatus("✓ Guardada en Descargas: \(downloadedPNGURL.lastPathComponent)", isError: false)
             case .failure(let error):
-                self.showTemporaryStatus(error.localizedDescription, isError: true)
+                self.showTemporaryStatus("Error: \(error.localizedDescription)", isError: true)
             }
         }
     }

@@ -234,7 +234,12 @@ struct ShelfThumbnailCellView: View {
                     }
                 },
                 onClick: {
-                    stateModel.removeBackgroundForItem(id: item.id)
+                    if item.isTransparentPNG {
+                        NSWorkspace.shared.activateFileViewerSelecting([item.activeURL])
+                        stateModel.showTemporaryStatus("Mostrando en Descargas: \(item.activeURL.lastPathComponent)", isError: false)
+                    } else {
+                        stateModel.removeBackgroundForItem(id: item.id)
+                    }
                 },
                 onRightClick: {
                     stateModel.removeShelfItem(id: item.id)
@@ -244,7 +249,7 @@ struct ShelfThumbnailCellView: View {
                 }
             )
         )
-        .help("Clic: quitar fondo y descargar PNG · Arrastrar: mover · 'x' o clic derecho: borrar")
+        .help(item.isTransparentPNG ? "Clic: ver en Descargas · Arrastrar: mover archivo · 'x': borrar" : "Clic: quitar fondo y guardar en Descargas · Arrastrar: mover archivo · 'x': borrar")
     }
 }
 

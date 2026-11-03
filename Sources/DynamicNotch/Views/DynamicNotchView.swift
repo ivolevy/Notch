@@ -130,7 +130,7 @@ struct DynamicNotchView: View {
     // MARK: - Expanded Contextual State (Left-Aligned Menu Bar + Active Module Only)
     private var expandedNotchContent: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Top Minimalist Apple Segmented Switcher Aligned to the LEFT
+            // Top Minimalist Apple Segmented Switcher (Left) + Pin / Unpin Controls (Right)
             HStack(spacing: 0) {
                 HStack(spacing: 4) {
                     segmentedTabPill(tab: .music, icon: "play.circle.fill")
@@ -142,6 +142,9 @@ struct DynamicNotchView: View {
                 .clipShape(Capsule())
 
                 Spacer(minLength: 0)
+
+                // Pin / Unpin Button Section
+                pinControlsSection
             }
 
             // Active Contextual Module
@@ -176,6 +179,95 @@ struct DynamicNotchView: View {
         .padding(.horizontal, 16)
         .padding(.top, 7)
         .padding(.bottom, 9)
+        .onTapGesture(count: 2) {
+            if stateModel.isPinnedOpen {
+                withAnimation(springAnimation) {
+                    stateModel.showUnpinButton.toggle()
+                }
+            }
+        }
+    }
+
+    // MARK: - Pin / Unpin Controls
+    @ViewBuilder
+    private var pinControlsSection: some View {
+        if stateModel.isPinnedOpen {
+            if stateModel.showUnpinButton {
+                Button(action: {
+                    withAnimation(springAnimation) {
+                        stateModel.isPinnedOpen = false
+                        stateModel.showUnpinButton = false
+                        stateModel.isHovering = false
+                    }
+                }) {
+                    HStack(spacing: 3.5) {
+                        Image(systemName: "pin.slash.fill")
+                            .font(.system(size: 9.5, weight: .bold))
+                        Text("Desanclar")
+                            .font(.system(size: 9.5, weight: .bold, design: .rounded))
+                    }
+                    .foregroundColor(.black)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3.5)
+                    .background(Color.white)
+                    .clipShape(Capsule())
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .transition(.scale.combined(with: .opacity))
+                .help("Desanclar Notch")
+            } else {
+                Button(action: {
+                    withAnimation(springAnimation) {
+                        stateModel.showUnpinButton = true
+                    }
+                }) {
+                    HStack(spacing: 3.5) {
+                        Image(systemName: "pin.fill")
+                            .font(.system(size: 9.5, weight: .bold))
+                        Text("Anclado")
+                            .font(.system(size: 9.5, weight: .medium, design: .rounded))
+                    }
+                    .foregroundColor(Color.cyan)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3.5)
+                    .background(Color.cyan.opacity(0.18))
+                    .clipShape(Capsule())
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .simultaneousGesture(
+                    TapGesture(count: 2).onEnded {
+                        withAnimation(springAnimation) {
+                            stateModel.showUnpinButton = true
+                        }
+                    }
+                )
+                .help("Doble clic para desanclar")
+            }
+        } else {
+            Button(action: {
+                withAnimation(springAnimation) {
+                    stateModel.isPinnedOpen = true
+                    stateModel.showUnpinButton = false
+                }
+            }) {
+                HStack(spacing: 3.5) {
+                    Image(systemName: "pin")
+                        .font(.system(size: 9.5, weight: .semibold))
+                    Text("Anclar")
+                        .font(.system(size: 9.5, weight: .medium, design: .rounded))
+                }
+                .foregroundColor(Color.white.opacity(0.68))
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3.5)
+                .background(Color.white.opacity(0.08))
+                .clipShape(Capsule())
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .help("Anclar Notch (mantener abierto)")
+        }
     }
 
     private func segmentedTabPill(tab: NotchTab, icon: String) -> some View {

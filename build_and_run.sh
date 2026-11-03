@@ -89,7 +89,7 @@ cat > "${CONTENTS_DIR}/Info.plist" <<EOF
 </plist>
 EOF
 
-echo "==> [3/6] Copiando binario compilado, ícono AppIcon.icns y modelo IA a ${APP_NAME}.app..."
+echo "==> [3/6] Copiando binario compilado e ícono AppIcon.icns a ${APP_NAME}.app..."
 cp "$BINARY_PATH" "${MACOS_DIR}/${APP_NAME}"
 chmod +x "${MACOS_DIR}/${APP_NAME}"
 if [[ ! -f "${SCRIPT_DIR}/AppIcon.icns" && -f "${SCRIPT_DIR}/generate_icon.swift" ]]; then
@@ -100,16 +100,8 @@ fi
 if [[ -f "${SCRIPT_DIR}/AppIcon.icns" ]]; then
     cp "${SCRIPT_DIR}/AppIcon.icns" "${RESOURCES_DIR}/AppIcon.icns"
 fi
-if [[ ! -f "${SCRIPT_DIR}/rmbg-1.4.onnx" ]]; then
-    echo "==> [3.5/6] Descargando modelo IA RMBG-1.4 para eliminación de fondo..."
-    curl -L -o "${SCRIPT_DIR}/rmbg-1.4.onnx" "https://huggingface.co/briaai/RMBG-1.4/resolve/main/onnx/model.onnx"
-fi
-if [[ -f "${SCRIPT_DIR}/rmbg-1.4.onnx" ]]; then
-    cp "${SCRIPT_DIR}/rmbg-1.4.onnx" "${RESOURCES_DIR}/rmbg-1.4.onnx"
-fi
-if [[ -f "${SCRIPT_DIR}/u2netp.onnx" ]]; then
-    cp "${SCRIPT_DIR}/u2netp.onnx" "${RESOURCES_DIR}/u2netp.onnx"
-fi
+# Nota de Optimización: En macOS 14+ (Sonoma / Sequoia), la app utiliza el motor neuronal nativo de Apple Vision
+# (VNGenerateForegroundInstanceMaskRequest), logrando máxima calidad sin inflar el bundle con ~210 MB de modelos ONNX.
 if [[ -f "${SCRIPT_DIR}/remove_bg_ai.py" ]]; then
     cp "${SCRIPT_DIR}/remove_bg_ai.py" "${RESOURCES_DIR}/remove_bg_ai.py"
     chmod +x "${RESOURCES_DIR}/remove_bg_ai.py"
