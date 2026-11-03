@@ -179,97 +179,28 @@ struct DynamicNotchView: View {
         .padding(.horizontal, 16)
         .padding(.top, 7)
         .padding(.bottom, 9)
-        .simultaneousGesture(
-            TapGesture(count: 2).onEnded {
-                if stateModel.isPinnedOpen {
-                    withAnimation(springAnimation) {
-                        stateModel.showUnpinButton.toggle()
-                    }
-                }
-            }
-        )
     }
 
-    // MARK: - Pin / Unpin Controls
-    @ViewBuilder
+    // MARK: - Pin / Unpin Button (Solo la tacha: clic ancla, clic desancla)
     private var pinControlsSection: some View {
-        if stateModel.isPinnedOpen {
-            if stateModel.showUnpinButton {
-                Button(action: {
-                    withAnimation(springAnimation) {
-                        stateModel.isPinnedOpen = false
-                        stateModel.showUnpinButton = false
-                        stateModel.isHovering = false
-                    }
-                }) {
-                    HStack(spacing: 3.5) {
-                        Image(systemName: "pin.slash.fill")
-                            .font(.system(size: 9.5, weight: .bold))
-                        Text("Desanclar")
-                            .font(.system(size: 9.5, weight: .bold, design: .rounded))
-                    }
-                    .foregroundColor(.black)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3.5)
-                    .background(Color.white)
-                    .clipShape(Capsule())
-                    .contentShape(Capsule())
+        Button(action: {
+            withAnimation(springAnimation) {
+                stateModel.isPinnedOpen.toggle()
+                if !stateModel.isPinnedOpen {
+                    stateModel.isHovering = false
                 }
-                .buttonStyle(.plain)
-                .transition(.scale.combined(with: .opacity))
-                .help("Desanclar Notch")
-            } else {
-                Button(action: {
-                    withAnimation(springAnimation) {
-                        stateModel.showUnpinButton = true
-                    }
-                }) {
-                    HStack(spacing: 3.5) {
-                        Image(systemName: "pin.fill")
-                            .font(.system(size: 9.5, weight: .bold))
-                        Text("Anclado")
-                            .font(.system(size: 9.5, weight: .medium, design: .rounded))
-                    }
-                    .foregroundColor(Color.cyan)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3.5)
-                    .background(Color.cyan.opacity(0.18))
-                    .clipShape(Capsule())
-                    .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .simultaneousGesture(
-                    TapGesture(count: 2).onEnded {
-                        withAnimation(springAnimation) {
-                            stateModel.showUnpinButton = true
-                        }
-                    }
-                )
-                .help("Doble clic para desanclar")
             }
-        } else {
-            Button(action: {
-                withAnimation(springAnimation) {
-                    stateModel.isPinnedOpen = true
-                    stateModel.showUnpinButton = false
-                }
-            }) {
-                HStack(spacing: 3.5) {
-                    Image(systemName: "pin")
-                        .font(.system(size: 9.5, weight: .semibold))
-                    Text("Anclar")
-                        .font(.system(size: 9.5, weight: .medium, design: .rounded))
-                }
-                .foregroundColor(Color.white.opacity(0.68))
-                .padding(.horizontal, 7)
-                .padding(.vertical, 3.5)
-                .background(Color.white.opacity(0.08))
+        }) {
+            Image(systemName: stateModel.isPinnedOpen ? "pin.fill" : "pin")
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundColor(stateModel.isPinnedOpen ? .black : .white.opacity(0.68))
+                .frame(width: 24, height: 20)
+                .background(stateModel.isPinnedOpen ? Color.white : Color.white.opacity(0.08))
                 .clipShape(Capsule())
                 .contentShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .help("Anclar Notch (mantener abierto)")
         }
+        .buttonStyle(.plain)
+        .help(stateModel.isPinnedOpen ? "Desanclar Notch" : "Anclar Notch")
     }
 
     private func segmentedTabPill(tab: NotchTab, icon: String) -> some View {

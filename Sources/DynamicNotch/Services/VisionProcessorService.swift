@@ -49,7 +49,7 @@ final class VisionProcessorService {
             }
 
             // 1. Primary Engine: Native Apple Neural Engine Vision Foreground Instance Mask (macOS 14+ / Sonoma / Sequoia)
-            // Segments any foreground subject (people, pets, objects, products, logos) natively at hardware speed with zero dependencies
+            // Segments any foreground subject (people, pets, objects, products, logos) natively at hardware speed with zero external dependencies
             if NSClassFromString("VNGenerateForegroundInstanceMaskRequest") != nil {
                 if let outputURL = try? self.removeBackgroundMacOS14(cgImage: cgImage, destinationURL: destinationURL) {
                     let folder = destinationURL.deletingLastPathComponent().path
@@ -71,17 +71,7 @@ final class VisionProcessorService {
                 return
             }
 
-            // 3. Fallback: Neural Python AI if user has onnxruntime configured locally
-            if self.runNeuralBackgroundRemoval(inputURL: imageURL, outputURL: destinationURL) {
-                let folder = destinationURL.deletingLastPathComponent().path
-                NSWorkspace.shared.noteFileSystemChanged(folder)
-                DispatchQueue.main.async {
-                    completion(.success(destinationURL))
-                }
-                return
-            }
-
-            // 4. Fallback: Contrast/Luminance Alpha Keying
+            // 3. Fallback: Contrast/Luminance Alpha Keying via CoreImage (Native Swift, zero popups/dependencies)
             if let outputURL = try? self.removeBackgroundLuminanceFallback(cgImage: cgImage, destinationURL: destinationURL) {
                 let folder = destinationURL.deletingLastPathComponent().path
                 NSWorkspace.shared.noteFileSystemChanged(folder)
@@ -124,49 +114,6 @@ final class VisionProcessorService {
             counter += 1
         }
         return outURL
-    }
-
-    private func runNeuralBackgroundRemoval(inputURL: URL, outputURL: URL) -> Bool {
-        let bundleRes = Bundle.main.resourceURL
-        let candidateScripts = [
-            bundleRes?.appendingPathComponent("remove_bg_ai.py").path,
-            URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Desktop/DynamicNotch/remove_bg_ai.py").path
-        ].compactMap { $0 }
-
-        let candidateModels = [
-            bundleRes?.appendingPathComponent("rmbg-1.4.onnx").path,
-            bundleRes?.appendingPathComponent("u2netp.onnx").path,
-            URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Desktop/DynamicNotch/rmbg-1.4.onnx").path,
-            URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Desktop/DynamicNotch/u2netp.onnx").path
-        ].compactMap { $0 }
-
-        let candidatePythons = [
-            "/usr/local/bin/python3",
-            "/opt/homebrew/bin/python3",
-            "/Library/Frameworks/Python.framework/Versions/3.12/bin/python3",
-            "/usr/bin/python3"
-        ]
-
-        guard let scriptPath = candidateScripts.first(where: { FileManager.default.fileExists(atPath: $0) }),
-              let modelPath = candidateModels.first(where: { FileManager.default.fileExists(atPath: $0) }),
-              let pythonPath = candidatePythons.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
-            return false
-        }
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: pythonPath)
-        process.arguments = [scriptPath, inputURL.path, outputURL.path, modelPath]
-
-        let errorPipe = Pipe()
-        process.standardError = errorPipe
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-            return process.terminationStatus == 0 && FileManager.default.fileExists(atPath: outputURL.path)
-        } catch {
-            return false
-        }
     }
 
     private func removeBackgroundMacOS14(cgImage: CGImage, destinationURL: URL) throws -> URL {

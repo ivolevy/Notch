@@ -35,14 +35,7 @@ final class NotchStateModel: ObservableObject {
     @Published var isDraggingOver: Bool = false
     @Published var isDraggingOverLeftShelf: Bool = false
     @Published var isDraggingOverRightAirDrop: Bool = false
-    @Published var isPinnedOpen: Bool = false {
-        didSet {
-            if !isPinnedOpen {
-                showUnpinButton = false
-            }
-        }
-    }
-    @Published var showUnpinButton: Bool = false
+    @Published var isPinnedOpen: Bool = false
     @Published var isManuallyCollapsed: Bool = false
     @Published var isNotchHidden: Bool = false
     @Published var activeTab: NotchTab = .music

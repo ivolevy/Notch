@@ -101,11 +101,7 @@ if [[ -f "${SCRIPT_DIR}/AppIcon.icns" ]]; then
     cp "${SCRIPT_DIR}/AppIcon.icns" "${RESOURCES_DIR}/AppIcon.icns"
 fi
 # Nota de Optimización: En macOS 14+ (Sonoma / Sequoia), la app utiliza el motor neuronal nativo de Apple Vision
-# (VNGenerateForegroundInstanceMaskRequest), logrando máxima calidad sin inflar el bundle con ~210 MB de modelos ONNX.
-if [[ -f "${SCRIPT_DIR}/remove_bg_ai.py" ]]; then
-    cp "${SCRIPT_DIR}/remove_bg_ai.py" "${RESOURCES_DIR}/remove_bg_ai.py"
-    chmod +x "${RESOURCES_DIR}/remove_bg_ai.py"
-fi
+# (VNGenerateForegroundInstanceMaskRequest), logrando máxima calidad sin Python, sin dependencias y sin inflar el bundle.
 
 echo "==> [4/6] Firmando ad-hoc el bundle ${APP_NAME}.app..."
 codesign --force --deep --sign - "$APP_BUNDLE"
