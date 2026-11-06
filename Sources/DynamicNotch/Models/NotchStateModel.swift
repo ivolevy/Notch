@@ -76,14 +76,16 @@ final class NotchStateModel: ObservableObject {
         return min(max(totalRows, 1), 3)
     }
 
+    static let standardModuleHeight: CGFloat = 56
+
     var trayModuleHeight: CGFloat {
         switch visibleShelfRows {
         case 1:
-            return 54
+            return NotchStateModel.standardModuleHeight
         case 2:
-            return 100
+            return NotchStateModel.standardModuleHeight + 46
         default:
-            return 146
+            return NotchStateModel.standardModuleHeight + 92
         }
     }
 
@@ -121,11 +123,11 @@ final class NotchStateModel: ObservableObject {
             let moduleHeight: CGFloat
             switch activeTab {
             case .camera:
-                moduleHeight = 68
+                moduleHeight = NotchStateModel.standardModuleHeight
             case .tray:
                 moduleHeight = trayModuleHeight
             case .music:
-                moduleHeight = 52
+                moduleHeight = NotchStateModel.standardModuleHeight
             }
             let base: CGFloat = 52 + moduleHeight
             return statusBanner != nil ? base + 14 : base

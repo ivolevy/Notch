@@ -241,7 +241,6 @@ final class NowPlayingService: ObservableObject {
             let isSafariRunning = runningApps.contains { $0.bundleIdentifier == "com.apple.Safari" }
             let isBraveRunning = runningApps.contains { $0.bundleIdentifier == "com.brave.Browser" }
             let isEdgeRunning = runningApps.contains { $0.bundleIdentifier == "com.microsoft.edgemac" }
-            let isWhatsAppRunning = runningApps.contains { $0.bundleIdentifier == "net.whatsapp.WhatsApp" || $0.bundleIdentifier == "net.whatsapp.WhatsApp.desktop" }
 
             let mrNowPlaying = self.queryMediaRemoteSync()
             var detected: [DetectedMediaSession] = []
@@ -254,18 +253,6 @@ final class NowPlayingService: ObservableObject {
             // 2. Detect Apple Music if open
             if isMusicRunning, let musicSession = self.queryAppleMusic() {
                 detected.append(musicSession)
-            }
-
-            // 3. Detect WhatsApp Desktop if open
-            if isWhatsAppRunning {
-                detected.append(DetectedMediaSession(
-                    source: .whatsapp,
-                    title: "WhatsApp Audio",
-                    subtitle: "WhatsApp",
-                    isPlaying: true,
-                    artworkURL: nil,
-                    artworkData: nil
-                ))
             }
 
             // 4. Detect YouTube / Web media in Chrome, Safari, Brave, Arc, Edge
@@ -320,6 +307,9 @@ final class NowPlayingService: ObservableObject {
                 chosen = match
             } else if let playingMatch = detected.first(where: { $0.isPlaying }) {
                 chosen = playingMatch
+            } else if let currentActive = self.activeSource,
+                      let currentMatch = detected.first(where: { $0.source == currentActive }) {
+                chosen = currentMatch
             } else {
                 chosen = detected.first
             }
@@ -412,7 +402,7 @@ final class NowPlayingService: ObservableObject {
                 repeat with t in tabs of w
                     set u to URL of t
                     set ttl to \(titleProp) of t
-                    if u contains "youtube.com/watch" or u contains "youtube.com/shorts" or u contains "music.youtube.com" or u contains "open.spotify.com" or u contains "soundcloud.com" or u contains "twitch.tv" or u contains "web.whatsapp.com" or u contains "netflix.com" or u contains "disneyplus.com" or u contains "primevideo.com" or u contains "vimeo.com" or u contains "tiktok.com" then
+                    if u contains "youtube.com/watch" or u contains "youtube.com/shorts" or u contains "music.youtube.com" or u contains "open.spotify.com" or u contains "soundcloud.com" or u contains "twitch.tv" or u contains "netflix.com" or u contains "disneyplus.com" or u contains "primevideo.com" or u contains "vimeo.com" or u contains "tiktok.com" then
                         return ttl & "|||" & u
                     end if
                 end repeat
@@ -454,14 +444,11 @@ final class NowPlayingService: ObservableObject {
 
         let isYouTube = urlString.contains("youtube.com") || urlString.contains("youtu.be")
         let isSpotifyWeb = urlString.contains("spotify.com")
-        let isWhatsAppWeb = urlString.contains("whatsapp.com")
         let source: MediaSourceType
         if isYouTube {
             source = .youtube
         } else if isSpotifyWeb {
             source = .spotify
-        } else if isWhatsAppWeb {
-            source = .whatsapp
         } else {
             source = .web
         }

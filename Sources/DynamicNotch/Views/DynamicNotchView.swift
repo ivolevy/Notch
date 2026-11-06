@@ -163,9 +163,9 @@ struct DynamicNotchView: View {
             }
             .frame(maxWidth: .infinity)
             .frame(
-                height: stateModel.activeTab == .camera
-                    ? 68
-                    : (stateModel.activeTab == .tray ? stateModel.trayModuleHeight : 52)
+                height: stateModel.activeTab == .tray
+                    ? stateModel.trayModuleHeight
+                    : NotchStateModel.standardModuleHeight
             )
 
             if let banner = stateModel.statusBanner {
@@ -213,26 +213,17 @@ struct DynamicNotchView: View {
             Image(systemName: icon)
                 .font(.system(size: 10.5, weight: .semibold))
                 .foregroundColor(isSelected ? .black : .white.opacity(0.68))
-                .frame(width: 24, height: 20)
+                .frame(width: 26, height: 20)
                 .background(isSelected ? Color.white : Color.clear)
                 .clipShape(Capsule())
-                .contentShape(Capsule())
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .overlay(
-            ActiveHoverTrackingView(
-                onHover: { hovering in
-                    if hovering {
-                        stateModel.switchTabOnHover(tab)
-                    }
-                },
-                onClick: {
-                    withAnimation(springAnimation) {
-                        stateModel.activeTab = tab
-                    }
-                }
-            )
-        )
+        .onHover { hovering in
+            if hovering {
+                stateModel.switchTabOnHover(tab)
+            }
+        }
     }
 }
 
@@ -260,6 +251,12 @@ final class ActiveTrackingNSView: NSView {
     var onClick: (() -> Void)?
     private var trackingArea: NSTrackingArea?
 
+    override var isFlipped: Bool { return true }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        return true
+    }
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let existing = trackingArea {
@@ -267,6 +264,7 @@ final class ActiveTrackingNSView: NSView {
         }
         let options: NSTrackingArea.Options = [
             .mouseEnteredAndExited,
+            .mouseMoved,
             .activeAlways,
             .inVisibleRect
         ]
@@ -275,7 +273,17 @@ final class ActiveTrackingNSView: NSView {
         self.trackingArea = area
     }
 
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        return bounds.contains(point) ? self : nil
+    }
+
     override func mouseEntered(with event: NSEvent) {
+        DispatchQueue.main.async { [weak self] in
+            self?.onHover?(true)
+        }
+    }
+
+    override func mouseMoved(with event: NSEvent) {
         DispatchQueue.main.async { [weak self] in
             self?.onHover?(true)
         }

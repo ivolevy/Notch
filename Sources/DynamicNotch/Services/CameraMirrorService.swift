@@ -314,7 +314,7 @@ struct WebcamCircularPreview: NSViewRepresentable {
     let session: AVCaptureSession
 
     func makeNSView(context: Context) -> CameraPreviewContainerView {
-        let view = CameraPreviewContainerView(frame: NSRect(x: 0, y: 0, width: 64, height: 64))
+        let view = CameraPreviewContainerView(frame: NSRect(x: 0, y: 0, width: 50, height: 50))
         view.setSession(session)
         return view
     }

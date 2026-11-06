@@ -209,6 +209,23 @@ final class NotchWindowController {
                 return
             }
 
+            // Immediately switch tabs on hover when expanded
+            if stateModel.isHovering || stateModel.isPinnedOpen {
+                let notchLeft = screenFrame.midX - (activeW / 2.0)
+                let tabTopY = screenFrame.maxY - 4
+                let tabBottomY = screenFrame.maxY - 36
+
+                if mouseLoc.y >= tabBottomY && mouseLoc.y <= tabTopY {
+                    if mouseLoc.x >= (notchLeft + 14) && mouseLoc.x < (notchLeft + 45) {
+                        stateModel.switchTabOnHover(.music)
+                    } else if mouseLoc.x >= (notchLeft + 45) && mouseLoc.x < (notchLeft + 75) {
+                        stateModel.switchTabOnHover(.tray)
+                    } else if mouseLoc.x >= (notchLeft + 75) && mouseLoc.x <= (notchLeft + 112) {
+                        stateModel.switchTabOnHover(.camera)
+                    }
+                }
+            }
+
             if !stateModel.isHovering && hoverExpandWorkItem == nil {
                 let work = DispatchWorkItem { [weak self] in
                     guard let self = self else { return }

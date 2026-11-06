@@ -5,7 +5,7 @@ struct MirrorLightModuleView: View {
     @ObservedObject var stateModel: NotchStateModel
     @State private var isCameraHovered: Bool = false
 
-    private let mirrorSize: CGFloat = 64
+    private let mirrorSize: CGFloat = 50
 
     var body: some View {
         HStack(spacing: 14) {
@@ -98,7 +98,7 @@ struct MirrorLightModuleView: View {
                     Image(systemName: stateModel.isRingLightOn ? "sun.max.fill" : "sun.max")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(stateModel.isRingLightOn ? .black : .white)
-                        .frame(width: 32, height: 32)
+                        .frame(width: 30, height: 30)
                         .background(
                             stateModel.isRingLightOn
                                 ? Color(red: 1.0, green: 0.92, blue: 0.65)
